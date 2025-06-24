@@ -1,55 +1,51 @@
 ---
 - name: Laravel Web App Deployment and Testing
   hosts: localhost
+  gather_facts: false
+
   vars:
-    pod_name: "laravel-app-66f4668b9b-hkqzn"    # Your web pod name
-    web_container: "web"                        # Web container name inside the pod
-    mysql_container: "mysql"                    # MySQL container name inside the pod
-    project_dir: "/var/www/html"                # Path to Laravel project inside the container
-    backup_file: "/var/www/html/db_backup.sql" # Backup file path inside the mysql container
-    mysql_root_password: "Hello@123"            # MySQL root password
-    mysql_database: "final_laravel"              # MySQL production database name
+    web_pod: laravel-app-66f4668b9b-hkqzn     # Change to your web pod name
+    web_container: web
+    mysql_pod: laravel-app-66f4668b9b-hkqzn   # Change to your MySQL pod name if different
+    mysql_container: mysql
+    backup_file: /tmp/mysql_backup_{{ ansible_date_time.iso8601 }}.sql
+    prod_db_user: root
+    prod_db_password: "your_mysql_root_password"
+    prod_db_name: your_production_database_name
 
   tasks:
 
-    - name: Check for local changes before pulling latest code
-      shell: kubectl exec {{ pod_name }} -c {{ web_container }} -- bash -c "cd {{ project_dir }} && git diff --quiet"
-      register: git_diff_check
-      failed_when: git_diff_check.rc != 0
-      ignore_errors: no
-
-    - name: Pull latest code from git repository
-      shell: kubectl exec {{ pod_name }} -c {{ web_container }} -- bash -c "cd {{ project_dir }} && git pull"
-      register: git_pull_result
-      failed_when: git_pull_result.rc != 0
-      ignore_errors: no
-
-    - name: Install PHP dependencies with composer
-      shell: kubectl exec {{ pod_name }} -c {{ web_container }} -- bash -c "cd {{ project_dir }} && composer install --no-interaction"
-      register: composer_install
-      failed_when: composer_install.rc != 0
-      ignore_errors: no
-
-    - name: Install npm dependencies and build assets
-      shell: kubectl exec {{ pod_name }} -c {{ web_container }} -- bash -c "cd {{ project_dir }} && npm install && npm run build"
-      register: npm_build
-      failed_when: npm_build.rc != 0
-      ignore_errors: no
-
-    - name: Run Laravel tests using SQLite database
+    - name: Check for local git changes on web pod
       shell: |
-        kubectl exec {{ pod_name }} -c {{ web_container }} -- bash -c "cd {{ project_dir }} && cp .env.testing.sqlite .env && php artisan migrate --env=testing && php artisan test"
-      register: laravel_test
-      failed_when: laravel_test.rc != 0
-      ignore_errors: no
+        kubectl exec {{ web_pod }} -c {{ web_container }} -- bash -c "cd /var/www/html && git diff --quiet"
+      register: git_diff
+      failed_when: git_diff.rc != 0
+      ignore_errors: false
 
-    - name: Backup MySQL production database to a SQL file
+    - name: Pull latest code on web pod
       shell: |
-        kubectl exec {{ pod_name }} -c {{ mysql_container }} -- bash -c "mysqldump -u root -p{{ mysql_root_password }} {{ mysql_database }} > {{ backup_file }}"
-      register: mysql_backup
-      failed_when: mysql_backup.rc != 0
-      ignore_errors: no
+        kubectl exec {{ web_pod }} -c {{ web_container }} -- bash -c "cd /var/www/html && git pull"
+      when: git_diff.rc == 0
 
-    - name: Show MySQL backup file location
-      debug:
-        msg: "MySQL backup saved to {{ backup_file }} inside container {{ mysql_container }} of pod {{ pod_name }}"
+    - name: Run composer install on web pod
+      shell: |
+        kubectl exec {{ web_pod }} -c {{ web_container }} -- bash -c "cd /var/www/html && composer install --no-interaction --prefer-dist --optimize-autoloader"
+
+    - name: Run npm install and build on web pod
+      shell: |
+        kubectl exec {{ web_pod }} -c {{ web_container }} -- bash -c "cd /var/www/html && npm install && npm run build"
+
+    - name: Run PHPUnit tests using SQLite on web pod
+      shell: |
+        kubectl exec {{ web_pod }} -c {{ web_container }} -- bash -c "cd /var/www/html && ./vendor/bin/phpunit"
+      environment:
+        DB_CONNECTION: sqlite
+        DB_DATABASE: /var/www/html/database/testing.sqlite
+
+    - name: Backup MySQL production database
+      shell: |
+        kubectl exec {{ mysql_pod }} -c {{ mysql_container }} -- bash -c "mysqldump -u{{ prod_db_user }} -p'{{ prod_db_password }}' {{ prod_db_name }} > {{ backup_file }}"
+
+    - name: Copy MySQL backup file from pod to local
+      shell: |
+        kubectl cp {{ mysql_pod }}:{{ backup_file }} ./mysql_backup.sql -c {{ mysql_container }}
