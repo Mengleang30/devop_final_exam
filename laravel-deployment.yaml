@@ -36,22 +36,32 @@ spec:
           command: ["/bin/sh", "-c"]
           args:
             - |
-              apt-get update && apt-get install -y nginx git unzip php-mysql php-curl php-mbstring php-xml php-bcmath php-zip openssh-server &&
+              apt-get update && apt-get install -y nginx git unzip openssh-server libzip-dev libxml2-dev libcurl4-openssl-dev pkg-config libssl-dev &&
+              docker-php-ext-install pdo_mysql mbstring xml zip bcmath curl &&
               service nginx start &&
               git clone https://github.com/Mengleang30/devop_final_exam.git /var/www/html &&
               tail -f /dev/null
+          resources:
+            requests:
+              memory: "1Gi"
+              cpu: "1000m"
+            limits:
+              memory: "2Gi"
+              cpu: "1500m"
+
         - name: mysql
           image: mysql:8
           env:
             - name: MYSQL_DATABASE
               value: "final_laravel"
             - name: MYSQL_ROOT_PASSWORD
-              value: "leang3007$"
+              value: "Hello@123"
           ports:
             - containerPort: 3306
           volumeMounts:
             - name: mysql-pvc
               mountPath: /var/lib/mysql
+
       volumes:
         - name: laravel-code
           emptyDir: {}
