@@ -2,13 +2,16 @@ pipeline {
     agent any
 
     environment {
-        CC_EMAIL = 'srengty@gmail.com'
-        ANSIBLE_PLAYBOOK = './web-deploy.yml'   // Adjust if needed
+        CC_EMAIL = 'novmengleang14@gmail.com'
+        ANSIBLE_PLAYBOOK = './web-deploy.yml'
+        INVENTORY = './inventory.ini'
+    }
+
+    triggers {
+        pollSCM('H/5 * * * *')
     }
 
     options {
-        // Poll SCM every 5 minutes
-        pollSCM('H/5 * * * *')
         buildDiscarder(logRotator(daysToKeepStr: '30', numToKeepStr: '50'))
     }
 
