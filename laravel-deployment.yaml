@@ -1,31 +1,4 @@
 apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: nginx-config
-data:
-  default.conf: |
-    server {
-        listen 8080;
-        index index.php index.html;
-        root /var/www/html/public;
-
-        location / {
-            try_files $uri $uri/ /index.php?$query_string;
-        }
-
-        location ~ \.php$ {
-            fastcgi_pass 127.0.0.1:9000;
-            fastcgi_index index.php;
-            fastcgi_param SCRIPT_FILENAME /var/www/html$fastcgi_script_name;
-            include fastcgi_params;
-        }
-
-        location ~ /\.ht {
-            deny all;
-        }
-    }
----
-apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: mysql-pvc
@@ -35,20 +8,12 @@ spec:
   resources:
     requests:
       storage: 1Gi
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: mysql-secret
-type: Opaque
-data:
-  MYSQL_ROOT_PASSWORD: SGVsbG9AMTIz  # Base64 of Hello@123
-  MYSQL_DATABASE: bWVuZ2xlYW5nLWRi  # Base64 of mengleang-db
+
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: laravel-deployment
+  name: laravel-app
 spec:
   replicas: 1
   selector:
@@ -61,58 +26,35 @@ spec:
     spec:
       containers:
         - name: web
-          image: laravelphp/php-fpm-nginx:latest # Optional: use a custom image with Laravel setup
+          image: php:8.2-fpm
           ports:
             - containerPort: 8080
             - containerPort: 22
           volumeMounts:
-            - name: laravel-code
-              mountPath: /var/www/html
-            - name: nginx-config-volume
-              mountPath: /etc/nginx/conf.d
+            - mountPath: /var/www/html
+              name: laravel-code
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              apt-get update && apt-get install -y nginx git unzip php-mysql php-curl php-mbstring php-xml php-bcmath php-zip openssh-server &&
+              service nginx start &&
+              git clone https://github.com/Mengleang30/devop_final_exam.git /var/www/html &&
+              tail -f /dev/null
         - name: mysql
-          image: mysql:8.0
+          image: mysql:8
+          env:
+            - name: MYSQL_DATABASE
+              value: "final_laravel"
+            - name: MYSQL_ROOT_PASSWORD
+              value: "leang3007$"
           ports:
             - containerPort: 3306
-          env:
-            - name: MYSQL_ROOT_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: mysql-secret
-                  key: MYSQL_ROOT_PASSWORD
-            - name: MYSQL_DATABASE
-              valueFrom:
-                secretKeyRef:
-                  name: mysql-secret
-                  key: MYSQL_DATABASE
           volumeMounts:
-            - name: mysql-persistent-storage
+            - name: mysql-pvc
               mountPath: /var/lib/mysql
       volumes:
         - name: laravel-code
-          hostPath:
-            path: /home/mengleang/Documents/DevOp/FinalExam/laravel
-        - name: mysql-persistent-storage
+          emptyDir: {}
+        - name: mysql-pvc
           persistentVolumeClaim:
             claimName: mysql-pvc
-        - name: nginx-config-volume
-          configMap:
-            name: nginx-config
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: laravel-service
-spec:
-  selector:
-    app: laravel-app
-  type: NodePort
-  ports:
-    - name: http
-      port: 8080
-      targetPort: 8080
-      nodePort: 30080
-    - name: ssh
-      port: 22
-      targetPort: 22
-      nodePort: 30222
