@@ -71,6 +71,12 @@
             "php-http/discovery": true
         }
     },
+    "repositories": [
+    {
+        "type": "composer",
+        "url": "http://203.95.199.55:8081/repository/composer-proxy-i4"
+    }
+    ],
     "minimum-stability": "stable",
     "prefer-stable": true
 }

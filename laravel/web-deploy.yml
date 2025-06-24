@@ -1,0 +1,55 @@
+---
+- name: Laravel Web App Deployment and Testing
+  hosts: localhost
+  vars:
+    pod_name: "laravel-app-66f4668b9b-hkqzn"    # Your web pod name
+    web_container: "web"                        # Web container name inside the pod
+    mysql_container: "mysql"                    # MySQL container name inside the pod
+    project_dir: "/var/www/html"                # Path to Laravel project inside the container
+    backup_file: "/var/www/html/db_backup.sql" # Backup file path inside the mysql container
+    mysql_root_password: "Hello@123"            # MySQL root password
+    mysql_database: "final_laravel"              # MySQL production database name
+
+  tasks:
+
+    - name: Check for local changes before pulling latest code
+      shell: kubectl exec {{ pod_name }} -c {{ web_container }} -- bash -c "cd {{ project_dir }} && git diff --quiet"
+      register: git_diff_check
+      failed_when: git_diff_check.rc != 0
+      ignore_errors: no
+
+    - name: Pull latest code from git repository
+      shell: kubectl exec {{ pod_name }} -c {{ web_container }} -- bash -c "cd {{ project_dir }} && git pull"
+      register: git_pull_result
+      failed_when: git_pull_result.rc != 0
+      ignore_errors: no
+
+    - name: Install PHP dependencies with composer
+      shell: kubectl exec {{ pod_name }} -c {{ web_container }} -- bash -c "cd {{ project_dir }} && composer install --no-interaction"
+      register: composer_install
+      failed_when: composer_install.rc != 0
+      ignore_errors: no
+
+    - name: Install npm dependencies and build assets
+      shell: kubectl exec {{ pod_name }} -c {{ web_container }} -- bash -c "cd {{ project_dir }} && npm install && npm run build"
+      register: npm_build
+      failed_when: npm_build.rc != 0
+      ignore_errors: no
+
+    - name: Run Laravel tests using SQLite database
+      shell: |
+        kubectl exec {{ pod_name }} -c {{ web_container }} -- bash -c "cd {{ project_dir }} && cp .env.testing.sqlite .env && php artisan migrate --env=testing && php artisan test"
+      register: laravel_test
+      failed_when: laravel_test.rc != 0
+      ignore_errors: no
+
+    - name: Backup MySQL production database to a SQL file
+      shell: |
+        kubectl exec {{ pod_name }} -c {{ mysql_container }} -- bash -c "mysqldump -u root -p{{ mysql_root_password }} {{ mysql_database }} > {{ backup_file }}"
+      register: mysql_backup
+      failed_when: mysql_backup.rc != 0
+      ignore_errors: no
+
+    - name: Show MySQL backup file location
+      debug:
+        msg: "MySQL backup saved to {{ backup_file }} inside container {{ mysql_container }} of pod {{ pod_name }}"
